@@ -10,6 +10,7 @@ from alarm import Alarm
 from config import (
     BLINK_CLOSED_THRESHOLD,
     CALIBRATION_SECONDS,
+    CAMERA_INDEX,
     CLOSED_SECONDS,
     EAR_CLOSED_RATIO,
     EAR_THRESHOLD,
