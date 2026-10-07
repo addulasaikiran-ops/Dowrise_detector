@@ -1,5 +1,5 @@
 # Runtime dependencies for Windows / Python 3.12
 opencv-python>=4.10,<5
-mediapipe==0.10.30
+mediapipe==0.10.31
 numpy>=1.26,<2
 pygame>=2.5,<3
