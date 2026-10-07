@@ -1,6 +1,7 @@
 import os
 import time
 import urllib.request
+from collections import deque
 from statistics import median
 
 import cv2
@@ -24,6 +25,11 @@ from config import (
     LOG_FILE,
     MAR_THRESHOLD,
     MIN_CALIBRATION_SAMPLES,
+    REPEATED_CLOSURE_COUNT,
+    REPEATED_CLOSURE_MIN_SECONDS,
+    REPEATED_CLOSURE_WINDOW,
+    HEAD_EYE_COMBO_SECONDS,
+    YAWN_EYE_COMBO_SECONDS,
     SMOOTHING_WINDOW,
     WARNING_SECONDS,
     YAWN_SECONDS,
@@ -97,6 +103,7 @@ class DetectionEngine:
         self.head_since = None
         self.last_event = None
         self.drowsy_latched = False
+        self.recent_closures = deque()
 
         self.ear_smoother = MedianSmoother(SMOOTHING_WINDOW)
         self.mar_smoother = MedianSmoother(SMOOTHING_WINDOW)
@@ -109,6 +116,7 @@ class DetectionEngine:
         self.calibration_samples = []
         self.baseline_ear = None
         self.calibrated = False
+        self.recent_closures.clear()
 
     def _update_calibration(self, now, ear, blink):
         if self.calibrated:
@@ -216,6 +224,36 @@ class DetectionEngine:
             sustained_yawn = yawn_duration >= YAWN_SECONDS
             sustained_head = head_duration >= HEAD_POSE_SECONDS
 
+            if not eyes_closed and self.closed_since is not None:
+                completed = now - self.closed_since
+                if completed >= REPEATED_CLOSURE_MIN_SECONDS:
+                    self.recent_closures.append(now)
+                self.closed_since = None
+
+            cutoff = now - REPEATED_CLOSURE_WINDOW
+            while self.recent_closures and self.recent_closures[0] < cutoff:
+                self.recent_closures.popleft()
+
+            repeated_closures = len(self.recent_closures) >= REPEATED_CLOSURE_COUNT
+
+            head_eye_combo = (
+                eyes_closed
+                and closed_duration >= HEAD_EYE_COMBO_SECONDS
+                and sustained_head
+            )
+            yawn_eye_combo = (
+                sustained_yawn
+                and blink >= BLINK_CLOSED_THRESHOLD
+                and yawn_duration >= YAWN_EYE_COMBO_SECONDS
+            )
+
+            alarm_condition = (
+                sustained_closure
+                or repeated_closures
+                or head_eye_combo
+                or yawn_eye_combo
+            )
+
             score = drowsiness_score(
                 ear,
                 mar,
@@ -226,7 +264,7 @@ class DetectionEngine:
                 baseline_ear=self.baseline_ear,
             )
 
-            if sustained_closure:
+            if alarm_condition:
                 self.drowsy_latched = True
             elif self.drowsy_latched:
                 if (
