@@ -40,7 +40,7 @@ def test_calibration_learns_open_eye_baseline():
     engine.baseline_ear = None
     engine.calibrated = False
 
-    for i in range(30):
+    for i in range(31):
         engine._update_calibration(0.1 * i, 0.30, 0.10)
 
     assert engine.calibrated
