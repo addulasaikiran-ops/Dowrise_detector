@@ -5,7 +5,7 @@ A real-time Python prototype that uses a webcam to detect prolonged eye closure 
 ## Stack
 - Python 3.12
 - OpenCV
-- MediaPipe Face Mesh
+- MediaPipe Face Landmarker
 - NumPy
 - Pygame
 
@@ -21,13 +21,15 @@ This project targets Python 3.12.
 .\setup_windows.bat
 ```
 
-The setup script explicitly creates the virtual environment with Python 3.12.
+The setup script creates the virtual environment with the installed Astral/uv Python 3.12 runtime.
 
 Then start the detector:
 
 ```powershell
 .\run.bat
 ```
+
+On the first run, the program downloads the MediaPipe Face Landmarker model into `models/face_landmarker.task`. An internet connection is required for this first download.
 
 Press **Q** to quit.
 
