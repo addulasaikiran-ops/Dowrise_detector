@@ -1,22 +1,47 @@
 import os
 import time
 import urllib.request
+from statistics import median
 
 import cv2
 import mediapipe as mp
 
 from alarm import Alarm
 from config import (
-    CAMERA_INDEX, CLOSED_SECONDS, EAR_THRESHOLD, FRAME_HEIGHT, FRAME_WIDTH,
-    HEAD_POSE_SECONDS, HEAD_TILT_THRESHOLD, LOG_FILE, MAR_THRESHOLD,
-    WARNING_SECONDS, YAWN_SECONDS,
+    BLINK_CLOSED_THRESHOLD,
+    CALIBRATION_SECONDS,
+    CLOSED_SECONDS,
+    EAR_CLOSED_RATIO,
+    EAR_THRESHOLD,
+    EAR_WARNING_RATIO,
+    FRAME_HEIGHT,
+    FRAME_WIDTH,
+    HEAD_PITCH_THRESHOLD,
+    HEAD_POSE_SECONDS,
+    HEAD_TILT_THRESHOLD,
+    JAW_OPEN_THRESHOLD,
+    LOG_FILE,
+    MAR_THRESHOLD,
+    MIN_CALIBRATION_SAMPLES,
+    SMOOTHING_WINDOW,
+    WARNING_SECONDS,
+    YAWN_SECONDS,
 )
-from detector import drowsiness_score, eye_metrics, head_pose_score, mouth_aspect_ratio
+from detector import (
+    MedianSmoother,
+    combined_eye_closure,
+    combined_mouth_openness,
+    drowsiness_score,
+    head_pose_score,
+)
 from logger import EventLogger
 
 MODEL_DIR = "models"
 MODEL_PATH = os.path.join(MODEL_DIR, "face_landmarker.task")
-MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/latest/face_landmarker.task"
+)
 
 
 def ensure_model():
@@ -30,32 +55,86 @@ def ensure_model():
 class DetectionEngine:
     def __init__(self):
         ensure_model()
-        self.cap = cv2.VideoCapture(CAMERA_INDEX)
+
+        self.cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         if not self.cap.isOpened():
-            raise RuntimeError("Could not open webcam. Check Windows camera permissions.")
+            self.cap = cv2.VideoCapture(CAMERA_INDEX)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+
+        if not self.cap.isOpened():
+            raise RuntimeError(
+                "Could not open webcam. Check Windows camera permissions."
+            )
 
         Vision = mp.tasks.vision
         options = Vision.FaceLandmarkerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=MODEL_PATH),
             running_mode=Vision.RunningMode.VIDEO,
             num_faces=1,
-            min_face_detection_confidence=0.5,
-            min_face_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_face_detection_confidence=0.55,
+            min_face_presence_confidence=0.55,
+            min_tracking_confidence=0.55,
+            output_face_blendshapes=True,
         )
+
         self.landmarker = Vision.FaceLandmarker.create_from_options(options)
         self.alarm = Alarm()
         self.logger = EventLogger(LOG_FILE)
-        self.reset()
+
         self.frame_timestamp = 0
+        self.timestamp_start = time.monotonic()
+        self.reset()
 
     def reset(self):
         self.closed_since = None
         self.yawn_since = None
         self.head_since = None
         self.last_event = None
+        self.drowsy_latched = False
+
+        self.ear_smoother = MedianSmoother(SMOOTHING_WINDOW)
+        self.mar_smoother = MedianSmoother(SMOOTHING_WINDOW)
+        self.blink_smoother = MedianSmoother(SMOOTHING_WINDOW)
+        self.jaw_smoother = MedianSmoother(SMOOTHING_WINDOW)
+        self.yaw_smoother = MedianSmoother(SMOOTHING_WINDOW)
+        self.pitch_smoother = MedianSmoother(SMOOTHING_WINDOW)
+
+        self.calibration_start = None
+        self.calibration_samples = []
+        self.baseline_ear = None
+        self.calibrated = False
+
+    def _update_calibration(self, now, ear, blink):
+        if self.calibrated:
+            return
+
+        if self.calibration_start is None:
+            self.calibration_start = now
+
+        elapsed = now - self.calibration_start
+
+        if blink < 0.35 and ear > 0.18:
+            self.calibration_samples.append(ear)
+
+        if (
+            elapsed >= CALIBRATION_SECONDS
+            and len(self.calibration_samples) >= MIN_CALIBRATION_SAMPLES
+        ):
+            self.baseline_ear = median(self.calibration_samples)
+            self.calibrated = True
+
+    def _eye_thresholds(self):
+        if self.baseline_ear is None:
+            return EAR_THRESHOLD, EAR_THRESHOLD * 1.10
+
+        closed = min(EAR_THRESHOLD, self.baseline_ear * EAR_CLOSED_RATIO)
+        warning = min(EAR_THRESHOLD * 1.10, self.baseline_ear * EAR_WARNING_RATIO)
+        return closed, warning
 
     def process(self):
         ok, frame = self.cap.read()
@@ -65,37 +144,98 @@ class DetectionEngine:
         frame = cv2.flip(frame, 1)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        self.frame_timestamp += 33
-        result = self.landmarker.detect_for_video(image, self.frame_timestamp)
+
+        timestamp_ms = int((time.monotonic() - self.timestamp_start) * 1000)
+        if timestamp_ms <= self.frame_timestamp:
+            timestamp_ms = self.frame_timestamp + 1
+        self.frame_timestamp = timestamp_ms
+
+        result = self.landmarker.detect_for_video(image, timestamp_ms)
 
         now = time.monotonic()
-        status, ear, mar, score = "AWAKE", 0.0, 0.0, 0
+        status = "AWAKE"
+        ear = 0.0
+        mar = 0.0
+        score = 0
 
         if result.face_landmarks:
             face = result.face_landmarks[0]
-            right_ear, left_ear = eye_metrics(face)
-            ear = (right_ear + left_ear) / 2
-            mar = mouth_aspect_ratio(face)
-            yaw, pitch = head_pose_score(face)
+            categories = result.face_blendshapes[0] if result.face_blendshapes else []
 
-            eyes_closed = ear < EAR_THRESHOLD
-            yawning = mar > MAR_THRESHOLD
-            head_tilt = abs(yaw) > HEAD_TILT_THRESHOLD or abs(pitch) > 0.42
+            raw_ear, raw_blink, _, _ = combined_eye_closure(face, categories)
+            raw_mar, raw_jaw = combined_mouth_openness(face, categories)
+            raw_yaw, raw_pitch = head_pose_score(face)
 
-            self.closed_since = now if eyes_closed and self.closed_since is None else (self.closed_since if eyes_closed else None)
-            self.yawn_since = now if yawning and self.yawn_since is None else (self.yawn_since if yawning else None)
-            self.head_since = now if head_tilt and self.head_since is None else (self.head_since if head_tilt else None)
+            ear = self.ear_smoother.update(raw_ear)
+            mar = self.mar_smoother.update(raw_mar)
+            blink = self.blink_smoother.update(raw_blink)
+            jaw_open = self.jaw_smoother.update(raw_jaw)
+            yaw = self.yaw_smoother.update(raw_yaw)
+            pitch = self.pitch_smoother.update(raw_pitch)
 
-            closed_duration = now - self.closed_since if self.closed_since else 0
-            yawn_duration = now - self.yawn_since if self.yawn_since else 0
-            head_duration = now - self.head_since if self.head_since else 0
+            self._update_calibration(now, ear, blink)
+            closed_threshold, warning_threshold = self._eye_thresholds()
+
+            geometry_closed = ear < closed_threshold
+            blendshape_closed = blink >= BLINK_CLOSED_THRESHOLD
+            eyes_closed = geometry_closed and blendshape_closed
+
+            if not self.calibrated:
+                eyes_closed = ear < EAR_THRESHOLD and blendshape_closed
+
+            yawning = mar > MAR_THRESHOLD and jaw_open >= JAW_OPEN_THRESHOLD
+            head_tilt = (
+                abs(yaw) > HEAD_TILT_THRESHOLD
+                or abs(pitch) > HEAD_PITCH_THRESHOLD
+            )
+
+            if eyes_closed:
+                if self.closed_since is None:
+                    self.closed_since = now
+            else:
+                self.closed_since = None
+
+            if yawning:
+                if self.yawn_since is None:
+                    self.yawn_since = now
+            else:
+                self.yawn_since = None
+
+            if head_tilt:
+                if self.head_since is None:
+                    self.head_since = now
+            else:
+                self.head_since = None
+
+            closed_duration = now - self.closed_since if self.closed_since else 0.0
+            yawn_duration = now - self.yawn_since if self.yawn_since else 0.0
+            head_duration = now - self.head_since if self.head_since else 0.0
 
             sustained_closure = closed_duration >= CLOSED_SECONDS
             sustained_yawn = yawn_duration >= YAWN_SECONDS
             sustained_head = head_duration >= HEAD_POSE_SECONDS
-            score = drowsiness_score(ear, mar, sustained_closure, sustained_yawn, sustained_head)
+
+            score = drowsiness_score(
+                ear,
+                mar,
+                sustained_closure,
+                sustained_yawn,
+                sustained_head,
+                blink_score=blink,
+                baseline_ear=self.baseline_ear,
+            )
 
             if sustained_closure:
+                self.drowsy_latched = True
+            elif self.drowsy_latched:
+                if (
+                    not eyes_closed
+                    and blink < 0.40
+                    and ear >= warning_threshold
+                ):
+                    self.drowsy_latched = False
+
+            if self.drowsy_latched:
                 status = "DROWSY"
             elif sustained_yawn:
                 status = "YAWNING"
@@ -104,12 +244,21 @@ class DetectionEngine:
             elif closed_duration >= WARNING_SECONDS:
                 status = "WARNING"
 
-            if status != self.last_event and status in {"DROWSY", "WARNING", "YAWNING", "HEAD OFF-CENTER"}:
+            if status != self.last_event and status in {
+                "DROWSY",
+                "WARNING",
+                "YAWNING",
+                "HEAD OFF-CENTER",
+            }:
                 self.logger.log(status, ear, mar, score)
                 self.last_event = status
+
         else:
             status = "NO FACE"
-            self.closed_since = self.yawn_since = self.head_since = None
+            self.closed_since = None
+            self.yawn_since = None
+            self.head_since = None
+            self.drowsy_latched = False
             self.last_event = None
 
         self.alarm.update(status == "DROWSY")
