@@ -1,7 +1,6 @@
 import os
 import time
 import urllib.request
-from collections import deque
 from statistics import median
 
 import cv2
@@ -36,6 +35,7 @@ from config import (
 )
 from detector import (
     MedianSmoother,
+    RepeatedClosureTracker,
     combined_eye_closure,
     combined_mouth_openness,
     drowsiness_score,
@@ -103,7 +103,11 @@ class DetectionEngine:
         self.head_since = None
         self.last_event = None
         self.drowsy_latched = False
-        self.recent_closures = deque()
+        self.recent_closures = RepeatedClosureTracker(
+            REPEATED_CLOSURE_WINDOW,
+            REPEATED_CLOSURE_MIN_SECONDS,
+            REPEATED_CLOSURE_COUNT,
+        )
 
         self.ear_smoother = MedianSmoother(SMOOTHING_WINDOW)
         self.mar_smoother = MedianSmoother(SMOOTHING_WINDOW)
@@ -116,7 +120,7 @@ class DetectionEngine:
         self.calibration_samples = []
         self.baseline_ear = None
         self.calibrated = False
-        self.recent_closures.clear()
+        self.recent_closures.reset()
 
     def _update_calibration(self, now, ear, blink):
         if self.calibrated:
@@ -202,6 +206,8 @@ class DetectionEngine:
                 if self.closed_since is None:
                     self.closed_since = now
             else:
+                if self.closed_since is not None:
+                    self.recent_closures.add(now - self.closed_since, now)
                 self.closed_since = None
 
             if yawning:
@@ -224,17 +230,7 @@ class DetectionEngine:
             sustained_yawn = yawn_duration >= YAWN_SECONDS
             sustained_head = head_duration >= HEAD_POSE_SECONDS
 
-            if not eyes_closed and self.closed_since is not None:
-                completed = now - self.closed_since
-                if completed >= REPEATED_CLOSURE_MIN_SECONDS:
-                    self.recent_closures.append(now)
-                self.closed_since = None
-
-            cutoff = now - REPEATED_CLOSURE_WINDOW
-            while self.recent_closures and self.recent_closures[0] < cutoff:
-                self.recent_closures.popleft()
-
-            repeated_closures = len(self.recent_closures) >= REPEATED_CLOSURE_COUNT
+            repeated_closures = self.recent_closures.triggered(now)
 
             head_eye_combo = (
                 eyes_closed
