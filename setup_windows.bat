@@ -1,8 +1,8 @@
 @echo off
 setlocal
 
-echo Creating virtual environment...
-python -m venv venv
+echo Creating Python 3.12 virtual environment...
+py -3.12 -m venv venv
 if errorlevel 1 goto :error
 
 echo Installing dependencies...
@@ -19,6 +19,6 @@ exit /b 0
 
 :error
 echo.
-echo Setup failed. Make sure Python 3.11 is installed and available in PATH.
+echo Setup failed. Make sure Python 3.12 is installed and available through the Python launcher.
 pause
 exit /b 1
