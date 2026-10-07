@@ -1,9 +1,21 @@
-def test_drowsiness_alarm_rule_combinations():
-    def alarm_condition(sustained, repeated, head_eye, yawn_eye):
-        return sustained or repeated or head_eye or yawn_eye
+from detector import alarm_condition
 
+
+def test_sustained_closure_triggers_alarm():
     assert alarm_condition(True, False, False, False)
+
+
+def test_repeated_closures_trigger_alarm():
     assert alarm_condition(False, True, False, False)
+
+
+def test_head_and_eye_combination_triggers_alarm():
     assert alarm_condition(False, False, True, False)
+
+
+def test_yawn_and_eye_combination_triggers_alarm():
     assert alarm_condition(False, False, False, True)
+
+
+def test_no_drowsiness_signal_does_not_trigger_alarm():
     assert not alarm_condition(False, False, False, False)
