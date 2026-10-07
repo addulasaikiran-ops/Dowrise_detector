@@ -1,0 +1,9 @@
+# Drowsiness detection configuration
+
+EAR_THRESHOLD = 0.21
+CLOSED_FRAMES_THRESHOLD = 20
+CAMERA_INDEX = 0
+
+WINDOW_TITLE = "Drowsiness Detector"
+FRAME_WIDTH = 960
+FRAME_HEIGHT = 540
