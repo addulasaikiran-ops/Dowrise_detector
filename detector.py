@@ -147,3 +147,13 @@ class RepeatedClosureTracker:
     def triggered(self, now):
         self._prune(now)
         return len(self.timestamps) >= self.required_count
+
+
+def alarm_condition(sustained_closure, repeated_closures, head_eye_combo, yawn_eye_combo):
+    """Return True when any high-confidence drowsiness condition is present."""
+    return (
+        sustained_closure
+        or repeated_closures
+        or head_eye_combo
+        or yawn_eye_combo
+    )
