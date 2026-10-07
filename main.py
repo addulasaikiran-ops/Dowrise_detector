@@ -36,6 +36,7 @@ from config import (
 from detector import (
     MedianSmoother,
     RepeatedClosureTracker,
+    alarm_condition,
     combined_eye_closure,
     combined_mouth_openness,
     drowsiness_score,
@@ -243,11 +244,11 @@ class DetectionEngine:
                 and yawn_duration >= YAWN_EYE_COMBO_SECONDS
             )
 
-            alarm_condition = (
-                sustained_closure
-                or repeated_closures
-                or head_eye_combo
-                or yawn_eye_combo
+            alarm_triggered = alarm_condition(
+                sustained_closure,
+                repeated_closures,
+                head_eye_combo,
+                yawn_eye_combo,
             )
 
             score = drowsiness_score(
@@ -260,7 +261,7 @@ class DetectionEngine:
                 baseline_ear=self.baseline_ear,
             )
 
-            if alarm_condition:
+            if alarm_triggered:
                 self.drowsy_latched = True
             elif self.drowsy_latched:
                 if (
