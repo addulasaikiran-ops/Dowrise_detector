@@ -3,7 +3,7 @@
 A real-time Python prototype that uses a webcam to detect prolonged eye closure and trigger an alarm.
 
 ## Stack
-- Python 3.11
+- Python 3.12
 - OpenCV
 - MediaPipe Face Mesh
 - NumPy
@@ -11,20 +11,22 @@ A real-time Python prototype that uses a webcam to detect prolonged eye closure 
 
 ## Windows setup
 
+This project targets Python 3.12.
+
 1. Open this repository folder in VS Code.
 2. Open a PowerShell terminal.
 3. Run:
 
 ```powershell
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
+.\setup_windows.bat
 ```
+
+The setup script explicitly creates the virtual environment with Python 3.12.
 
 Then start the detector:
 
 ```powershell
-python main.py
+.\run.bat
 ```
 
 Press **Q** to quit.
