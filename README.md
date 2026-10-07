@@ -1,42 +1,36 @@
-# Drowsiness Detector
+# Drowsiness Detector Pro
 
-A real-time Python prototype that uses a webcam to detect prolonged eye closure and trigger an alarm.
+A Windows/Python 3.12 real-time computer-vision prototype for detecting prolonged eye closure and fatigue indicators.
 
-## Stack
-- Python 3.12
-- OpenCV
+## Features
+- Real-time webcam monitoring
 - MediaPipe Face Landmarker
-- NumPy
-- Pygame
+- Eye Aspect Ratio (EAR)
+- Sustained eye-closure detection
+- Yawning indicator using Mouth Aspect Ratio (MAR)
+- Lightweight head-pose/off-center indicator
+- Drowsiness risk score
+- Audible alarm
+- Dashboard UI
+- CSV event logging
+- Reset/quit controls
 
-## Windows setup
-
-This project targets Python 3.12.
-
-1. Open this repository folder in VS Code.
-2. Open a PowerShell terminal.
-3. Run:
-
+## Run
 ```powershell
-.\setup_windows.bat
-```
-
-The setup script creates the virtual environment with the installed Astral/uv Python 3.12 runtime.
-
-Then start the detector:
-
-```powershell
+git pull
+.\venv\Scripts\Activate.ps1
 .\run.bat
 ```
 
-On the first run, the program downloads the MediaPipe Face Landmarker model into `models/face_landmarker.task`. An internet connection is required for this first download.
+The Face Landmarker model is downloaded automatically on first run.
 
-Press **Q** to quit.
+## Controls
+- **Q** — quit
+- **R** — reset detector state
 
-## What it does
+## Configuration
+Tune thresholds in `config.py`. Webcam position and lighting affect EAR/MAR measurements.
 
-The prototype tracks one face, calculates an Eye Aspect Ratio (EAR) from eye landmarks, and treats sustained low EAR as prolonged eye closure. When the closure lasts long enough, the status changes to **DROWSY** and an audible alarm starts.
+Events are saved to `data/events.csv`.
 
-The default thresholds live in `config.py` and can be tuned for your camera and lighting.
-
-> This is a prototype/assistive computer-vision project and is not a safety-certified driver monitoring system.
+> Prototype/assistive system only. It is not safety-certified and should not be the sole protection against driving while drowsy.
