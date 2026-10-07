@@ -94,9 +94,9 @@ class Dashboard(QMainWindow):
         side_layout.addWidget(self.risk)
 
         side_layout.addSpacing(8)
-        self.eye = self.metric("EYE ASPECT RATIO", "--")
-        self.mouth = self.metric("MOUTH ASPECT RATIO", "--")
-        self.fps = self.metric("CAMERA", "READY")
+        self.eye = self.make_metric("EYE ASPECT RATIO", "--")
+        self.mouth = self.make_metric("MOUTH ASPECT RATIO", "--")
+        self.fps = self.make_metric("CAMERA", "READY")
         for w in (self.eye, self.mouth, self.fps):
             side_layout.addWidget(w)
         side_layout.addStretch()
@@ -121,7 +121,7 @@ class Dashboard(QMainWindow):
         self.last_fps_time = time.monotonic()
         self.current_fps = 0
 
-    def metric(self, caption, value):
+    def make_metric(self, caption, value):
         box = QFrame()
         box.setStyleSheet("background:#0e151e; border-radius:10px; padding:8px;")
         lay = QVBoxLayout(box)
