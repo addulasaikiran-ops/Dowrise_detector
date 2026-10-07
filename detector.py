@@ -120,3 +120,30 @@ def drowsiness_score(
         score += 8
 
     return int(min(100, round(score)))
+
+
+class RepeatedClosureTracker:
+    """Track prolonged eye closures inside a rolling time window."""
+
+    def __init__(self, window_seconds=30.0, minimum_seconds=0.70, count=3):
+        self.window_seconds = float(window_seconds)
+        self.minimum_seconds = float(minimum_seconds)
+        self.required_count = int(count)
+        self.timestamps = deque()
+
+    def reset(self):
+        self.timestamps.clear()
+
+    def add(self, duration, now):
+        if duration >= self.minimum_seconds:
+            self.timestamps.append(float(now))
+        self._prune(now)
+
+    def _prune(self, now):
+        cutoff = float(now) - self.window_seconds
+        while self.timestamps and self.timestamps[0] < cutoff:
+            self.timestamps.popleft()
+
+    def triggered(self, now):
+        self._prune(now)
+        return len(self.timestamps) >= self.required_count
