@@ -64,11 +64,11 @@ def analyze_photo(path):
     """Analyze one still image without opening the webcam."""
     ensure_model()
 
-    frame = cv2.imread(path)
-    if frame is None:
-        raise ValueError("Could not read the selected image.")
+    frame = cv2.imread(path, cv2.IMREAD_COLOR)
+    if frame is None or frame.size == 0:
+        raise ValueError("The selected image could not be read.")
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()
     image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
     Vision = mp.tasks.vision
@@ -76,13 +76,19 @@ def analyze_photo(path):
         base_options=mp.tasks.BaseOptions(model_asset_path=MODEL_PATH),
         running_mode=Vision.RunningMode.IMAGE,
         num_faces=1,
-        min_face_detection_confidence=0.55,
-        min_face_presence_confidence=0.55,
+        min_face_detection_confidence=0.45,
+        min_face_presence_confidence=0.45,
         output_face_blendshapes=True,
     )
 
-    with Vision.FaceLandmarker.create_from_options(options) as landmarker:
-        result = landmarker.detect(image)
+    try:
+        with Vision.FaceLandmarker.create_from_options(options) as landmarker:
+            result = landmarker.detect(image)
+    except Exception as exc:
+        raise RuntimeError(
+            "MediaPipe could not process this image. "
+            "Check that the face is clearly visible and try another photo."
+        ) from exc
 
     if not result.face_landmarks:
         return frame, "NO FACE", 0.0, 0.0, 0
@@ -93,15 +99,17 @@ def analyze_photo(path):
     ear, blink, _, _ = combined_eye_closure(face, categories)
     mar, jaw_open = combined_mouth_openness(face, categories)
 
-    # A still image cannot measure sustained closure over time, so use
-    # agreement between geometric EAR and MediaPipe blink probability.
     eyes_closed = ear < EAR_THRESHOLD and blink >= BLINK_CLOSED_THRESHOLD
     yawn = mar > MAR_THRESHOLD and jaw_open >= JAW_OPEN_THRESHOLD
 
+    # A single image cannot prove sustained drowsiness. Report visible state.
     if eyes_closed:
-        status = "DROWSY"
-        score = drowsiness_score(
-            ear, mar, True, yawn, False, blink_score=blink
+        status = "EYES CLOSED"
+        score = min(
+            65,
+            drowsiness_score(
+                ear, mar, False, yawn, False, blink_score=blink
+            ),
         )
     elif yawn:
         status = "YAWNING"
