@@ -1,0 +1,4 @@
+# Lightweight dependencies used by unit tests
+numpy>=1.26,<2
+pygame>=2.5,<3
+pytest>=8,<9
