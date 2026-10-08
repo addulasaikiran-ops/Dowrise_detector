@@ -35,6 +35,8 @@ from config import (
 )
 from detector import (
     MedianSmoother,
+    calibration_baseline,
+    eye_thresholds,
     RepeatedClosureTracker,
     alarm_condition,
     combined_eye_closure,
@@ -204,16 +206,18 @@ class DetectionEngine:
             elapsed >= CALIBRATION_SECONDS
             and len(self.calibration_samples) >= MIN_CALIBRATION_SAMPLES
         ):
-            self.baseline_ear = median(self.calibration_samples)
-            self.calibrated = True
+            self.baseline_ear = calibration_baseline(
+                self.calibration_samples, MIN_CALIBRATION_SAMPLES
+            )
+            self.calibrated = self.baseline_ear is not None
 
     def _eye_thresholds(self):
-        if self.baseline_ear is None:
-            return EAR_THRESHOLD, EAR_THRESHOLD * 1.10
-
-        closed = min(EAR_THRESHOLD, self.baseline_ear * EAR_CLOSED_RATIO)
-        warning = min(EAR_THRESHOLD * 1.10, self.baseline_ear * EAR_WARNING_RATIO)
-        return closed, warning
+        return eye_thresholds(
+            self.baseline_ear,
+            EAR_THRESHOLD,
+            EAR_CLOSED_RATIO,
+            EAR_WARNING_RATIO,
+        )
 
     def process(self):
         ok, frame = self.cap.read()
