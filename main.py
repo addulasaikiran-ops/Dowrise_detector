@@ -60,6 +60,63 @@ def ensure_model():
         print("Face Landmarker model downloaded.")
 
 
+def analyze_photo(path):
+    """Analyze one still image without opening the webcam."""
+    ensure_model()
+
+    frame = cv2.imread(path)
+    if frame is None:
+        raise ValueError("Could not read the selected image.")
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+
+    Vision = mp.tasks.vision
+    options = Vision.FaceLandmarkerOptions(
+        base_options=mp.tasks.BaseOptions(model_asset_path=MODEL_PATH),
+        running_mode=Vision.RunningMode.IMAGE,
+        num_faces=1,
+        min_face_detection_confidence=0.55,
+        min_face_presence_confidence=0.55,
+        output_face_blendshapes=True,
+    )
+
+    with Vision.FaceLandmarker.create_from_options(options) as landmarker:
+        result = landmarker.detect(image)
+
+    if not result.face_landmarks:
+        return frame, "NO FACE", 0.0, 0.0, 0
+
+    face = result.face_landmarks[0]
+    categories = result.face_blendshapes[0] if result.face_blendshapes else []
+
+    ear, blink, _, _ = combined_eye_closure(face, categories)
+    mar, jaw_open = combined_mouth_openness(face, categories)
+
+    # A still image cannot measure sustained closure over time, so use
+    # agreement between geometric EAR and MediaPipe blink probability.
+    eyes_closed = ear < EAR_THRESHOLD and blink >= BLINK_CLOSED_THRESHOLD
+    yawn = mar > MAR_THRESHOLD and jaw_open >= JAW_OPEN_THRESHOLD
+
+    if eyes_closed:
+        status = "DROWSY"
+        score = drowsiness_score(
+            ear, mar, True, yawn, False, blink_score=blink
+        )
+    elif yawn:
+        status = "YAWNING"
+        score = drowsiness_score(
+            ear, mar, False, True, False, blink_score=blink
+        )
+    else:
+        status = "AWAKE"
+        score = drowsiness_score(
+            ear, mar, False, False, False, blink_score=blink
+        )
+
+    return frame, status, ear, mar, score
+
+
 class DetectionEngine:
     def __init__(self):
         ensure_model()
