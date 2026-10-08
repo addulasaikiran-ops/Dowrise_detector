@@ -362,6 +362,9 @@ class Dashboard(QMainWindow):
             if status == "DROWSY":
                 color = "#ff5366"
                 message = "DROWSINESS DETECTED"
+            elif status == "EYES CLOSED":
+                color = "#ffb547"
+                message = "EYES CLOSED — PHOTO CANNOT CONFIRM DROWSINESS"
             elif status == "YAWNING":
                 color = "#ffb547"
                 message = "YAWNING / FATIGUE SIGNAL"
