@@ -272,7 +272,7 @@ class Dashboard(QMainWindow):
         self.photo_btn = QPushButton("CHECK PHOTO")
         self.photo_btn.clicked.connect(self.check_photo)
 
-                self.start_btn = QPushButton("START MONITORING")
+        self.start_btn = QPushButton("START MONITORING")
         self.start_btn.setObjectName("primary")
         self.start_btn.clicked.connect(self.start)
 
