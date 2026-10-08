@@ -75,6 +75,22 @@ def head_pose_score(landmarks):
     return yaw, pitch
 
 
+def eye_thresholds(baseline_ear, ear_threshold, closed_ratio, warning_ratio):
+    """Return closed-eye and warning thresholds for a personal EAR baseline."""
+    if baseline_ear is None:
+        return ear_threshold, ear_threshold * 1.10
+    closed = min(ear_threshold, baseline_ear * closed_ratio)
+    warning = min(ear_threshold * 1.10, baseline_ear * warning_ratio)
+    return closed, warning
+
+
+def calibration_baseline(samples, minimum_samples):
+    """Return a robust personal EAR baseline once enough samples exist."""
+    if len(samples) < minimum_samples:
+        return None
+    return float(median(samples))
+
+
 class MedianSmoother:
     def __init__(self, size=7):
         self.values = deque(maxlen=size)
