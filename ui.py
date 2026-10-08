@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
+    QFileDialog,
+    QMessageBox,
     QLabel,
     QMainWindow,
     QProgressBar,
@@ -17,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from main import DetectionEngine
+from main import DetectionEngine, analyze_photo
 
 
 class Dashboard(QMainWindow):
@@ -267,7 +269,10 @@ class Dashboard(QMainWindow):
         controls = QHBoxLayout()
         controls.setSpacing(12)
 
-        self.start_btn = QPushButton("START MONITORING")
+        self.photo_btn = QPushButton("CHECK PHOTO")
+        self.photo_btn.clicked.connect(self.check_photo)
+
+                self.start_btn = QPushButton("START MONITORING")
         self.start_btn.setObjectName("primary")
         self.start_btn.clicked.connect(self.start)
 
@@ -278,7 +283,7 @@ class Dashboard(QMainWindow):
         self.reset_btn = QPushButton("RESET")
         self.reset_btn.clicked.connect(self.reset)
 
-        for button in (self.start_btn, self.stop_btn, self.reset_btn):
+        for button in (self.start_btn, self.stop_btn, self.reset_btn, self.photo_btn):
             button.setMinimumHeight(46)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             controls.addWidget(button, 1)
@@ -319,6 +324,69 @@ class Dashboard(QMainWindow):
 
         box.value_label = v
         return box
+
+    def check_photo(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Photo",
+            "",
+            "Images (*.jpg *.jpeg *.png *.bmp *.webp)",
+        )
+        if not path:
+            return
+
+        try:
+            frame, status, ear, mar, score = analyze_photo(path)
+
+            self.status.setText(status)
+            self.risk.setValue(int(score))
+            self.risk_label.setText(f"Photo risk {int(score)}%")
+            self.eye.value_label.setText(f"{ear:.3f}" if ear else "--")
+            self.mouth.value_label.setText(f"{mar:.3f}" if mar else "--")
+            self.fps.value_label.setText("PHOTO")
+
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            image = QImage(
+                rgb.data, w, h, ch * w, QImage.Format_RGB888
+            ).copy()
+            target = self.camera.size()
+            pixmap = QPixmap.fromImage(image).scaled(
+                max(1, target.width() - 2),
+                max(1, target.height() - 2),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            self.camera.setPixmap(pixmap)
+
+            if status == "DROWSY":
+                color = "#ff5366"
+                message = "DROWSINESS DETECTED"
+            elif status == "YAWNING":
+                color = "#ffb547"
+                message = "YAWNING / FATIGUE SIGNAL"
+            elif status == "NO FACE":
+                color = "#9aa9ba"
+                message = "NO FACE DETECTED"
+            else:
+                color = "#38d996"
+                message = "PERSON APPEARS AWAKE"
+
+            self.status.setStyleSheet(
+                f"color:{color}; font-size:34px; font-weight:800;"
+            )
+            QMessageBox.information(
+                self,
+                "Photo Check",
+                f"{message}\n\nRisk score: {int(score)}%\nEAR: {ear:.3f}\nMAR: {mar:.3f}",
+            )
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Photo Check Error",
+                f"Could not analyze this photo.\n\n{exc}",
+            )
 
     def start(self):
         if self.running:
